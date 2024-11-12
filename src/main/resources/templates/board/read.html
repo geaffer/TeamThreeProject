@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout/basic}" lang="ko">
+<meta charset="UTF-8">
+
+<div layout:fragment="content">
+    <div class="container mt-5">
+        <!-- 게시글 신고 버튼 -->
+        <button th:data-board-id="${board.boardId}"
+                th:data-nickname="${loggedInUser.nickname}"
+                onclick="openBoardReportModal(this.getAttribute('data-board-id'), this.getAttribute('data-nickname'))"
+                class="btn btn-danger" style="padding: 5px; border: none; background-color: transparent;">
+            <img src="/images/report-icon.png" alt="신고하기" style="width: 24px; height: 24px;">
+        </button>
+        <input type="hidden" id="boardId" th:value="${board.boardId}">
+        <input type="hidden" id="nickname" th:value="${loggedInUser.nickname}">
+        <input type="hidden" id="userId" th:value="${loggedInUser != null ? loggedInUser.userId : 0}">
+        <!-- 삭제 및 수정 버튼 그룹 (오른쪽에 한 줄로 정렬) -->
+        <div class="btn-group float-end" role="group" th:if="${loggedInUser != null and loggedInUser.userId == board.userId}">
+            <button type="button" class="btn btn-danger" th:onclick="|deletePost(${board.boardId})|">삭제</button>
+            <button type="button" class="btn btn-info" th:onclick="|modifyPost(${board.boardId})|">수정</button>
+        </div>
+
+
+        <h2 th:text="${board.title}">Board Title</h2>
+
+        <div class="form-group mt-3">
+            <div th:if="${board.fileNames != null && !board.fileNames.isEmpty()}">
+                <div th:each="file : ${board.fileNames}" class="mt-2">
+                    <th:block th:if="${file.toLowerCase().endsWith('.png') || file.toLowerCase().endsWith('.jpg') || file.toLowerCase().endsWith('.jpeg') || file.toLowerCase().endsWith('.gif')}">
+                        <img th:src="@{/upload/{file}(file=${file})}" class="img-thumbnail" style="max-width: 100%; height: auto; margin: 5px;" alt="Image preview">
+                    </th:block>
+                    <th:block th:if="${!(file.toLowerCase().endsWith('.png') || file.toLowerCase().endsWith('.jpg') || file.toLowerCase().endsWith('.jpeg') || file.toLowerCase().endsWith('.gif'))}">
+                        <p><a th:href="@{/upload/{file}(file=${file})}" th:text="${file}" target="_blank">File Download</a></p>
+                    </th:block>
+                </div>
+            </div>
+            <div th:if="${board.fileNames == null || board.fileNames.isEmpty()}">
+                <p>No files uploaded.</p>
+            </div>
+        </div>
+
+        <!-- 게시글 내용 표시 -->
+        <div class="form-group mt-3">
+            <p th:text="${board.content}">게시글 내용이 여기에 표시됩니다.</p>
+        </div>
+
+        <!-- 현재 페이지 링크 공유버튼 -->
+        <div class="form-group mt-3" th:if="${board.purchaseLink != null && board.purchaseLink != ''}">
+            <div class="input-group">
+                <!-- 왼쪽에 "구매 링크" 레이블 -->
+                <div class="input-group-prepend">
+                    <span class="input-group-text">구매 링크</span>
+                </div>
+
+                <!-- URL 주소 입력 필드 (읽기 전용) -->
+                <input type="text" class="form-control" id="purchaseLink"
+                       th:value="${board.purchaseLink}" readonly>
+
+                <!-- 오른쪽에 복사 버튼 -->
+                <div class="input-group-append">
+                    <button type="button" class="btn btn-outline-secondary" onclick="copyLink()">
+                        <img th:src="@{/images/copyLink.png}" alt="링크 복사" style="width: 24px; height: 24px;">
+                    </button>
+                </div>
+            </div>
+            <small id="copyAlert" class="form-text text-muted" style="display: none;">URL copied to clipboard!</small>
+        </div>
+        <!-- 좋아요 및 북마크 버튼 -->
+        <div class="d-flex justify-content-end">
+            <!-- HTML 요소에 데이터 속성으로 boardId와 userId를 설정합니다 -->
+            <button type="button" class="btn btn-link p-0"
+                    th:data-board-id="${board.boardId}"
+                    th:data-user-id="${loggedInUser.userId}"
+                    onclick="toggleIcon(this, 'like')">
+                <!--                                <img th:src="@{/images/like-icon.png}"-->
+                <img th:src="${board.isLiked ? '/images/like-icon-checked.png' : '/images/like-icon.png'}"
+                     data-src-checked="/images/like-icon-checked.png"
+                     data-src-unchecked="/images/like-icon.png"
+                     class="icon" alt="좋아요"
+                     style="width: 24px; height: 24px;">
+            </button>
+
+            <button type="button" class="btn btn-link p-0 ml-3"
+                    th:data-board-id="${board.boardId}"
+                    th:data-user-id="${loggedInUser.userId}"
+                    onclick="toggleIcon(this, 'bookmark')">
+                <!--                                <img th:src="@{/images/bookmark-icon.png}"-->
+                <img th:src="${board.isBookmarked ? '/images/bookmark-icon-checked.png' : '/images/bookmark-icon.png'}"
+                     data-src-checked="/images/bookmark-icon-checked.png"
+                     data-src-unchecked="/images/bookmark-icon.png"
+                     class="icon" alt="북마크"
+                     style="width: 24px; height: 24px;">
+            </button>
+        </div>
+        <a href="/list" class="btn btn-secondary float-end mt-4">돌아가기</a>
+    </div>
+    <div class="row mt-3">
+        <div class="col-md-12">
+            <div class="my-4 ">
+                <button class="btn btn-info addReplyBtn">댓글 쓰기</button>
+            </div>
+            <ul id="replyList" class="list-group replyList">
+                <li th:each="reply : ${replies}" class="list-group-item">
+                    <strong th:text="${reply.replyer}">작성자</strong>:
+                    <span th:text="${reply.content}">댓글 내용</span>
+                    <p th:text="${#temporals.format(reply.createdDate, 'yyyy-MM-dd HH:mm')}"></p>
+                </li>
+            </ul>
+
+        </div>
+    </div>
+    <div class="row mt-3">
+        <div class="col">
+            <ul class="pagination replyPaging">
+            </ul>
+        </div>
+    </div>
+
+    <div class="modal registerModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Register Reply</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="input-group mb-3">
+                        <span class="input-group-text">Reply Text</span>
+                        <input type="text" class="form-control replyText" name="content" placeholder="댓글을 입력하세요" required>
+                    </div>
+                    <div class="input-group mb-3">
+                        <span class="input-group-text">Replyer</span>
+                        <input type="text" class="form-control replyer" name="replyer" placeholder="작성자 이름" th:value="${loggedInUser.nickname}" readonly>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary registerBtn">Register</button>
+                    <button type="button" class="btn btn-outline-dark closeRegisterBtn">Close</button>
+                </div>
+            </div>
+        </div>
+    </div><!-- end regist modal -->
+
+    <!-- 게시글 신고 모달 -->
+    <div class="modal fade" id="reportModal" tabindex="-1" role="dialog" aria-labelledby="reportModalLabel" aria-hidden="true"
+         th:data-room-id="${board.boardId}" th:data-nickname="${board.nickname}">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="reportModalLabel">신고하기</h5>
+                    <button type="button" class="close" onclick="closeReportModal()" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <!-- 숨김 필드에 데이터 설정 -->
+                    <input type="hidden" id="reportType" value="Board"> <!-- 신고 유형  -->
+                    <input type="hidden" id="reportId"> <!-- 신고 대상 ID 저장 -->
+                    <input type="hidden" id="reportedBy"> <!-- 신고자 닉네임 저장 -->
+
+                    <label for="reportReason">신고 사유:</label>
+                    <textarea id="reportReason" class="form-control" rows="4" placeholder="신고 사유를 입력하세요"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeReportModal()">취소</button>
+                    <button type="button" class="btn btn-primary" onclick="submitReport()">신고 제출</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 댓글 신고 모달 -->
+    <div class="modal fade" id="replyReportModal" tabindex="-1" role="dialog" aria-labelledby="replyReportModalLabel" aria-hidden="true"
+    th:data-nickname="${board.nickname}">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="replyReportModalLabel">댓글 신고하기</h5>
+                    <button type="button" class="close" onclick="closeReplyReportModal()" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <!-- 숨김 필드에 데이터 설정 -->
+                    <input type="hidden" id="replyReportType" value="Reply"> <!-- 신고 유형 -->
+                    <input type="hidden" id="replyReportId"> <!-- 댓글 신고 대상 ID -->
+                    <input type="hidden" id="replyReportedBy" th:value="${loggedInUser.nickname}">
+
+                    <label for="replyReportReason">신고 사유:</label>
+                    <textarea id="replyReportReason" class="form-control" rows="4" placeholder="신고 사유를 입력하세요"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeReplyReportModal()">취소</button>
+                    <button type="button" class="btn btn-primary" onclick="submitReplyReport()">신고 제출</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Bootstrap JS and dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script th:inline="javascript">
+        /* 현재 로그인한 사용자의 정보를 window.loggedInUser 변수에 담기 */
+        window.loggedInUser = /*[[${loggedInUser}]]*/ null;
+    </script>
+
+    <script>
+        // 전역 변수 선언
+        let nickname;
+        let replyId;
+
+        // 게시글 신고 모달 열기 함수
+        function openBoardReportModal(id, userNickname) {
+            // hidden 필드에 데이터 설정
+            boardId = id;  // 전역 변수에 저장
+            nickname = userNickname;  // 전역 변수에 저장
+
+            document.getElementById('reportId').value = boardId;
+            document.getElementById('reportedBy').value = nickname;
+            console.log("boardId: ", boardId, "nickname: ", nickname);
+
+            // 모달 열기
+            $('#reportModal').modal('show');
+        }
+
+        // 댓글 신고 모달 열기 함수!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!11
+        function openReplyReportModal(replyId, userNickname) {
+
+            nickname = userNickname;  // 전역 변수에 저장
+
+            document.getElementById('replyReportId').value = replyId;
+            document.getElementById('replyReportedBy').value = nickname; // 현재 로그인한 사용자 ID
+
+            console.log("Logged-in user (ID):", nickname);
+            console.log("Reply ID:", replyId);
+
+            $('#replyReportModal').modal('show');
+        }
+
+
+        // 게시글 신고 모달 닫기
+        function closeReportModal() {
+            $('#reportModal').modal('hide');
+            document.getElementById('reportReason').value = '';
+            document.getElementById('reportType').value = '';
+            document.getElementById('reportId').value = '';
+        }
+
+        // 댓글 신고 모달 닫기 함수!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!11
+        function closeReplyReportModal() {
+            $('#replyReportModal').modal('hide');
+        }
+
+        // 게시글 신고 제출 함수
+        function submitReport() {
+            const reason = document.getElementById('reportReason').value.trim();
+
+            if (reason && boardId) {  // boardId와 reason이 존재하는지 확인
+                fetch(`/api/report/board`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ boardId: boardId, reason: reason, reportedBy: nickname })
+                })
+                    .then(response => {
+                        if (response.ok) {
+                            alert("신고가 제출되었습니다.");
+                            closeReportModal();
+                        } else {
+                            throw new Error("신고 제출에 실패했습니다.");
+                        }
+                    })
+                    .catch(error => console.error("신고 제출 실패:", error));
+            } else {
+                alert("신고 사유를 입력하세요.");
+            }
+        }
+
+        function submitReplyReport() {
+            const reason = document.getElementById('replyReportReason').value.trim();
+            const replyId = document.getElementById('replyReportId').value; // 댓글 ID
+            const reportedBy = document.getElementById('replyReportedBy').value; // 정확히 로그인한 사용자 ID
+
+            // 로그로 확인
+            console.log("신고할 댓글 ID:", replyId);
+            console.log("신고자 (ID):", reportedBy);
+            console.log("신고 사유:", reason);
+
+            if (!reason) {
+                alert("신고 사유를 입력하세요.");
+                return;
+            }
+
+            // 서버로 데이터 전송
+            fetch(`/api/report/reply`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ replyId: replyId, reason: reason, reportedBy: reportedBy })
+            })
+                .then(response => {
+                    if (response.ok) {
+                        alert("신고가 제출되었습니다.");
+                        closeReplyReportModal();
+                    } else {
+                        throw new Error("신고 제출에 실패했습니다.");
+                    }
+                })
+                .catch(error => console.error("신고 제출 실패:", error));
+        }
+
+        function toggleIcon(button, type) {
+            const img = $(button).find('img');
+            const boardId = $(button).data('board-id');  // 데이터 속성에서 boardId 가져오기
+            const userId = $(button).data('user-id');    // 데이터 속성에서 userId 가져오기
+
+            console.log("boardId: ", boardId, "userId: ", userId);
+
+            if (!userId) {
+                alert("로그인이 필요합니다");
+                return;
+            }
+
+            const url = type === 'like' ? '/toggleLike' : '/toggleBookmark';
+
+            $.ajax({
+                url: url,
+                type: 'POST',
+                contentType: 'application/x-www-form-urlencoded',
+                data: {
+                    boardId: boardId,
+                    userId: userId
+                },
+                success: function (isActive) {
+                    // true면 활성화, false면 비활성화 이미지로 전환
+                    const checkedSrc = img.attr('data-src-checked');
+                    const uncheckedSrc = img.attr('data-src-unchecked');
+                    img.attr('src', isActive ? checkedSrc : uncheckedSrc);
+                },
+                error: function (xhr, status, error) {
+                    console.error('Error:', error);
+                    console.error("status: ", status);
+                    console.error("Response: ", xhr.responseText);
+                }
+            });
+        }
+        // 지정된 URL을 복사하는 함수
+        function copyLink() {
+            const url = document.getElementById("purchaseLink").value; // 특정 URL을 가져옴
+            navigator.clipboard.writeText(url)
+                .then(() => {
+                    alert('URL이 복사되었습니다!');
+                })
+                .catch(err => {
+                    console.error('복사에 실패했습니다', err);
+                });
+        }
+
+        // 게시글 삭제 기능
+        function deletePost(boardId) {
+            if (confirm("정말로 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) {
+                fetch(`/delete/${boardId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                }).then(response => {
+                    if (response.ok) {
+                        alert("게시글이 성공적으로 삭제되었습니다.");
+                        window.location.href = "/list";  // 삭제 후 리스트 페이지로 이동
+                    } else {
+                        alert("게시글 삭제에 실패했습니다. 다시 시도해주세요.");
+                    }
+                }).catch(error => {
+                    console.error("Error:", error);
+                    alert("서버 오류가 발생했습니다. 다시 시도해주세요.");
+                });
+            }
+        }
+
+        // 게시글 수정 기능
+        function modifyPost(boardId) {
+            if (confirm("게시글을 수정하시겠습니까?")) {
+                window.location.href = `/modify/${boardId}`;
+            }
+        }
+
+        // 페이지 로드 시 댓글 목록을 자동으로 불러오기
+        document.addEventListener("DOMContentLoaded", function () {
+            loadReplies(); // 초기 페이지와 크기를 설정하여 호출
+        });
+
+        // 댓글 등록 모달 관련
+        const registerModal = new bootstrap.Modal(document.querySelector(".registerModal"));
+        const registerBtn = document.querySelector(".registerBtn");
+        const closeRegisterBtn = document.querySelector(".closeRegisterBtn");
+
+        document.querySelector(".addReplyBtn").addEventListener("click", function () {
+            registerModal.show();
+        });
+
+        closeRegisterBtn.addEventListener("click", function () {
+            registerModal.hide();
+        });
+
+        // 댓글 등록 버튼 클릭 시
+        registerBtn.addEventListener("click", function (e) {
+            const replyObj = {
+                boardId: document.getElementById('boardId').value,
+                userId: document.getElementById('userId').value,
+                content: document.querySelector(".replyText").value.trim(), // 댓글 내용
+                replyer: document.querySelector(".replyer").value.trim()    // 작성자
+            };
+
+            if (replyObj.content) {  // content 값이 존재하는지 확인
+                addReply(replyObj);
+            } else {
+                alert("댓글 내용을 입력해 주세요!");
+            }
+        });
+
+        // 댓글 등록 기능
+        function addReply(replyObj) {
+            fetch("/replies", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(replyObj)
+            })
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    } else {
+                        throw new Error("Failed to add reply");
+                    }
+                })
+                .then(data => {
+                    console.log("Reply added:", data);
+                    alert("댓글이 성공적으로 등록되었습니다.");
+                    registerModal.hide();  // 댓글 등록 후 모달 닫기
+                    window.location.reload(); // 페이지 새로고침
+                })
+                .catch(error => {
+                    console.error("Error adding reply:", error);
+                    alert("댓글 등록에 실패했습니다. 다시 시도해주세요.");
+                });
+        }
+
+        // 전역 변수 선언
+        let currentUserId = window.loggedInUser ? window.loggedInUser.userId : null;
+        let boardId = document.getElementById("boardId").value || null;
+        let currentPage = 0;
+        const pageSize = 3;  // 한 페이지당 댓글 수
+        let isLoading = false;
+        let hasMoreReplies = true;  // 댓글이 더 있는지 확인
+
+
+
+
+
+
+        // 전역 변수 추가
+        let lastReplyIds = []; // 이전 페이지의 댓글 ID들을 저장
+
+        // 댓글 목록을 로드하는 함수
+        function loadReplies() {
+            if (isLoading || !hasMoreReplies) return;
+
+            isLoading = true;
+
+            fetch(`/replies/list?boardId=${boardId}&page=${currentPage}&size=${pageSize}`, {
+                method: "GET",
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+
+                    // 댓글 목록을 content 필드에서 가져옴
+                    const replies = data.content;
+                    if (!Array.isArray(replies)) throw new Error("Received data is not an array");
+
+                    // last가 true면 더 이상 댓글이 없는 것으로 설정
+                    if (data.last) {
+                        hasMoreReplies = false;
+                    }
+
+                    const replyList = document.getElementById("replyList");
+
+                    // 댓글 추가
+                    replies.forEach(reply => {
+                        const replyItem = document.createElement("li");
+                        replyItem.classList.add("list-group-item");
+                        replyItem.innerHTML = `
+                <strong>${reply.replyer}</strong>: ${reply.content}
+                <br><small>${new Date(reply.createdDate).toLocaleString()}</small>
+            `;
+                        // 삭제 버튼 또는 신고 버튼 추가
+                        if (reply.userId === currentUserId) {
+                            const deleteButton = document.createElement("button");
+                            deleteButton.classList.add("removeReplyBtn", "btn", "btn-danger", "float-end", "btn-sm");
+                            deleteButton.textContent = "댓글삭제";
+                            deleteButton.onclick = () => removeReply(reply.replyId);
+                            replyItem.appendChild(deleteButton);
+                        } else {
+                            const reportButton = document.createElement("button");
+                            reportButton.classList.add("reportReplyBtn", "btn", "float-end", "btn-sm", "me-2");
+                            reportButton.style.backgroundColor = "transparent";
+                            reportButton.style.border = "none";
+                            reportButton.style.cursor = "pointer";
+
+                            const reportImage = document.createElement("img");
+                            reportImage.src = "/images/report-icon.png";
+                            reportImage.alt = "신고";
+                            reportImage.style.width = "16px";
+                            reportImage.style.height = "16px";
+                            reportButton.appendChild(reportImage);
+
+                            reportButton.onclick = () => openReplyReportModal(reply.replyId, reply.replyer);
+                            replyItem.appendChild(reportButton);
+                        }
+                        replyList.appendChild(replyItem);
+                    });
+
+                    if (replies.length > 0) {
+                        currentPage++; // 다음 페이지로 증가
+                    }
+
+                    isLoading = false;
+                })
+                .catch(error => {
+                    console.error("Error loading replies:", error);
+                    isLoading = false;
+                });
+        }
+
+
+        // 페이지 로드 시 초기 댓글 불러오기
+        document.addEventListener("DOMContentLoaded", function () {
+            loadReplies();
+        });
+
+        // 스크롤 이벤트로 댓글 로드
+        $(window).scroll(function () {
+            if ($(window).scrollTop() + $(window).height() >= $(document).height() - 50) {
+                loadReplies();
+            }
+        });
+
+
+        // 댓글 삭제 기능
+        function removeReply(replyId) {
+            if (confirm("정말로 댓글을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) {
+                fetch(`/replies/${replyId}`, {
+                    method: "DELETE",
+                    headers: {
+                        "Content-Type": "application/json"
+                    }
+                })
+                    .then(response => {
+                        if (response.ok) {
+                            alert("댓글이 성공적으로 삭제되었습니다.");
+                            window.location.reload(); // 페이지 새로고침
+                        } else {
+                            alert("댓글 삭제에 실패했습니다. 다시 시도해주세요.");
+                        }
+                    })
+                    .catch(error => {
+                        console.error("Error deleting reply:", error);
+                        alert("서버 오류가 발생했습니다. 다시 시도해주세요.");
+                    });
+            }
+        }
+    </script>
+
+</div>
+</html>
